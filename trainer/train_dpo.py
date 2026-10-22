@@ -54,6 +54,8 @@ def train_epoch(epoch, loader, iters, ref_model, lm_config, start_step=0, wandb=
     last_step = start_step
 
     for step, batch in enumerate(loader, start=start_step + 1):
+        if args.max_steps > 0 and step > args.max_steps:
+            break
         last_step = step
         x_chosen = batch['x_chosen'].to(args.device)
         x_rejected = batch['x_rejected'].to(args.device)
@@ -83,6 +85,10 @@ def train_epoch(epoch, loader, iters, ref_model, lm_config, start_step=0, wandb=
             loss = dpo_loss_val + outputs.aux_loss
             loss = loss / args.accumulation_steps
 
+        if not torch.isfinite(loss):
+            optimizer.zero_grad(set_to_none=True)
+            continue
+
         scaler.scale(loss).backward()
 
         if step % args.accumulation_steps == 0:
@@ -104,7 +110,8 @@ def train_epoch(epoch, loader, iters, ref_model, lm_config, start_step=0, wandb=
             
             if wandb: wandb.log({"loss": current_loss, "dpo_loss": current_dpo_loss, "aux_loss": current_aux_loss, "learning_rate": current_lr, "epoch_time": eta_min})
 
-        if (step % args.save_interval == 0 or step == iters) and is_main_process():
+        stop_step = args.max_steps > 0 and step >= args.max_steps
+        if (step % args.save_interval == 0 or step == iters or stop_step) and is_main_process():
             model.eval()
             moe_suffix = '_moe' if lm_config.use_moe else ''
             ckp = f'{args.save_dir}/{args.save_weight}_{lm_config.hidden_size}{moe_suffix}.pth'
@@ -118,6 +125,9 @@ def train_epoch(epoch, loader, iters, ref_model, lm_config, start_step=0, wandb=
 
         del x_chosen, x_rejected, y_chosen, y_rejected, mask_chosen, mask_rejected, x, y, mask
         del ref_outputs, ref_logits, ref_log_probs, outputs, logits, policy_log_probs, loss
+
+        if stop_step:
+            break
 
     if last_step > start_step and last_step % args.accumulation_steps != 0:
         scaler.unscale_(optimizer)
@@ -148,6 +158,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_path", type=str, default="../dataset/dpo.jsonl", help="DPO训练数据路径")
     parser.add_argument('--from_weight', default='full_sft', type=str, help="基于哪个权重训练")
     parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
+    parser.add_argument('--max_steps', default=0, type=int, help="最多处理的 batch 数，0 表示完整 epoch")
     parser.add_argument('--beta', default=0.15, type=float, help="DPO中的beta参数")
     parser.add_argument("--use_wandb", action="store_true", help="是否使用wandb")
     parser.add_argument("--wandb_project", type=str, default="MiniMind-DPO", help="wandb项目名")

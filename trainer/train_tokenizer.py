@@ -4,8 +4,10 @@ import os
 import json
 from tokenizers import decoders, models, pre_tokenizers, trainers, Tokenizer
 
-DATA_PATH = '../dataset/sft_t2t_mini.jsonl'
-TOKENIZER_DIR = '../model_learn_tokenizer/'
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# DATA_PATH = '../dataset/sft_t2t_mini.jsonl'
+DATA_PATH = os.path.join(REPO_ROOT, 'dataset', 'pretrain_t2t_mini.jsonl')
+TOKENIZER_DIR = os.path.join(REPO_ROOT, 'c_pth', 'model_learn_tokenizer')
 VOCAB_SIZE = 6400
 SPECIAL_TOKENS_NUM = 36
 

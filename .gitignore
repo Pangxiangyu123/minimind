@@ -1,6 +1,34 @@
 __pycache__/
+**/__pycache__/
 *.pyc
 .DS_Store
-out
+*.py[cod]
+
+# Local data, caches and credentials
+.hf_datasets_cache/
+.hf_home/
+.modelscope_cache/
+.modelscope_credentials
+.cache/
+dataset/*.jsonl
+dataset/*.csv
+dataset/*.bin
+dataset/.msc
+
+# Locally trained tokenizers, checkpoints and outputs
+c_pth/
+checkpoints/
+out/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Evaluation and runtime artifacts
+evaluation/
+logs/
+*.log
+*.jsonl
+
 website/
 docs-minimind/

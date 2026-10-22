@@ -24,9 +24,16 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
     start_time = time.time()
     last_step = start_step
     for step, (input_ids, labels) in enumerate(loader, start=start_step + 1):
+        if args.max_steps > 0 and step > args.max_steps:
+            break
         input_ids = input_ids.to(args.device)
         labels = labels.to(args.device)
         last_step = step
+
+        # A truncated conversation may contain no assistant tokens. CrossEntropy
+        # returns NaN when every label in a batch is -100, so skip such batches.
+        if not labels.ne(-100).any():
+            continue
         lr = get_lr(epoch * iters + step, args.epochs * iters, args.learning_rate)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
@@ -35,6 +42,10 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
             res = model(input_ids, labels=labels)
             loss = res.loss + res.aux_loss
             loss = loss / args.accumulation_steps
+
+        if not torch.isfinite(loss):
+            optimizer.zero_grad(set_to_none=True)
+            continue
 
         scaler.scale(loss).backward()
 
@@ -57,7 +68,8 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
             Logger(f'Epoch:[{epoch + 1}/{args.epochs}]({step}/{iters}), loss: {current_loss:.4f}, logits_loss: {current_logits_loss:.4f}, aux_loss: {current_aux_loss:.4f}, lr: {current_lr:.8f}, epoch_time: {eta_min:.1f}min')
             if wandb: wandb.log({"loss": current_loss, "logits_loss": current_logits_loss, "aux_loss": current_aux_loss, "learning_rate": current_lr, "epoch_time": eta_min})
 
-        if (step % args.save_interval == 0 or step == iters) and is_main_process():
+        stop_step = args.max_steps > 0 and step >= args.max_steps
+        if (step % args.save_interval == 0 or step == iters or stop_step) and is_main_process():
             model.eval()
             moe_suffix = '_moe' if lm_config.use_moe else ''
             ckp = f'{args.save_dir}/{args.save_weight}_{lm_config.hidden_size}{moe_suffix}.pth'
@@ -71,6 +83,9 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
             del state_dict
 
         del input_ids, labels, res, loss
+
+        if stop_step:
+            break
 
     if last_step > start_step and last_step % args.accumulation_steps != 0:
         scaler.unscale_(optimizer)
@@ -101,6 +116,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_path", type=str, default="../dataset/sft_t2t_mini.jsonl", help="训练数据路径")
     parser.add_argument('--from_weight', default='pretrain', type=str, help="基于哪个权重训练，为none则不基于任何权重训练")
     parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
+    parser.add_argument('--max_steps', default=0, type=int, help="最多处理的 batch 数，0 表示完整 epoch")
     parser.add_argument("--use_wandb", action="store_true", help="是否使用wandb")
     parser.add_argument("--wandb_project", type=str, default="MiniMind-Full-SFT", help="wandb项目名")
     parser.add_argument("--use_compile", default=0, type=int, choices=[0, 1], help="是否使用torch.compile加速（0=否，1=是）")

@@ -15,6 +15,8 @@ from torch.utils.data import Sampler
 from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
 from model.model_minimind import MiniMindForCausalLM
 
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
 def get_model_params(model, config):
     total = sum(p.numel() for p in model.parameters()) / 1e6
     n_routed = getattr(config, 'n_routed_experts', getattr(config, 'num_experts', 0))
@@ -116,7 +118,12 @@ def lm_checkpoint(lm_config, weight='full_sft', model=None, optimizer=None, epoc
         return None
 
 
-def init_model(lm_config, from_weight='pretrain', tokenizer_path='../model', save_dir='../out', device='cuda'):
+def init_model(lm_config, from_weight='pretrain', tokenizer_path=None, save_dir='../out', device='cuda'):
+    if tokenizer_path is None:
+        custom_tokenizer = os.path.join(REPO_ROOT, 'c_pth', 'model_learn_tokenizer')
+        bundled_tokenizer = os.path.join(REPO_ROOT, 'model')
+        tokenizer_path = custom_tokenizer if os.path.isdir(custom_tokenizer) else bundled_tokenizer
+    print("tokenizer_path =", tokenizer_path)
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     model = MiniMindForCausalLM(lm_config)
 
