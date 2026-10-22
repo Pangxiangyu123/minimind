@@ -7,7 +7,8 @@
 ```bash
 git clone <你的仓库地址> minimind
 cd minimind
-python -m pip install -r requirements.txt
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install --prefer-binary -r requirements.txt
 mkdir -p dataset
 ```
 
