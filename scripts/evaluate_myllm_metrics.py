@@ -110,8 +110,8 @@ def load_eval_data(data_dir, limit, data_file=None):
     return rows[cut:cut + limit]
 
 
-def load_model(checkpoint, tokenizer, device, lora_path=None):
-    config = MiniMindConfig(hidden_size=768, num_hidden_layers=8, use_moe=False)
+def load_model(checkpoint, tokenizer, device, lora_path=None, use_moe=False):
+    config = MiniMindConfig(hidden_size=768, num_hidden_layers=8, use_moe=use_moe)
     model = MiniMindForCausalLM(config)
     model.load_state_dict(torch.load(checkpoint, map_location="cpu"), strict=True)
     model = model.half().eval().to(device)
@@ -172,8 +172,8 @@ def generate(model, tokenizer, question, device):
     return tokenizer.decode(generated, skip_special_tokens=True).strip(), eos
 
 
-def evaluate(name, checkpoint, data, tokenizer, device, lora_path=None):
-    model = load_model(checkpoint, tokenizer, device, lora_path=lora_path)
+def evaluate(name, checkpoint, data, tokenizer, device, lora_path=None, use_moe=False):
+    model = load_model(checkpoint, tokenizer, device, lora_path=lora_path, use_moe=use_moe)
     sums = {key: 0.0 for key in ("rouge1", "rougeL", "char_f1", "repeat_rate", "answer_chars")}
     eos_count = truncation_count = empty_count = corrupt_count = 0
     rows = []
@@ -225,7 +225,8 @@ def main():
     parser.add_argument("--data-file", type=Path, default=None)
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--max-new", type=int, default=MAX_NEW)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUT)
+    parser.add_argument("--use-moe", action="store_true", help="评测 198M-A64M MoE 权重")
+    parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 
     MAX_NEW = max(1, args.max_new)
@@ -236,11 +237,14 @@ def main():
         tokenizer_path = ROOT / "model"
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     data = load_eval_data(args.data_dir, args.limit, args.data_file)
+    suffix = "_moe" if args.use_moe else ""
+    if args.output is None:
+        args.output = ROOT / "out" / f"minimind_myllm_metrics_{'moe' if args.use_moe else '64m'}.json"
     checkpoints = [
-        ("Base", ROOT / "out" / "pretrain_768.pth", None),
-        ("SFT", ROOT / "out" / "full_sft_fixed_768.pth", None),
-        ("LoRA", ROOT / "out" / "full_sft_fixed_768.pth", ROOT / "out" / "lora_medical_fixed_768.pth"),
-        ("DPO", ROOT / "out" / "dpo_fixed_768.pth", None),
+        ("Base", ROOT / "out" / f"pretrain_768{suffix}.pth", None),
+        ("SFT", ROOT / "out" / f"full_sft_768{suffix}.pth", None),
+        ("LoRA", ROOT / "out" / f"full_sft_768{suffix}.pth", ROOT / "out" / f"lora_medical_768{suffix}.pth"),
+        ("DPO", ROOT / "out" / f"dpo_768{suffix}.pth", None),
     ]
     results = []
     for name, checkpoint, lora_path in checkpoints:
@@ -248,7 +252,7 @@ def main():
             print(f"skip {name}: missing checkpoint")
             continue
         print(f"Evaluating {name}: {checkpoint}")
-        results.append(evaluate(name, checkpoint, data, tokenizer, device, lora_path))
+        results.append(evaluate(name, checkpoint, data, tokenizer, device, lora_path, use_moe=args.use_moe))
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

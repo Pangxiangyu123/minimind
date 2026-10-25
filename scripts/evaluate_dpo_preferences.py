@@ -23,8 +23,8 @@ def sequence_logprob(model, x, y, mask):
     return (token_log_probs * mask).sum(dim=1), mask.sum(dim=1).clamp_min(1)
 
 
-def load_model(checkpoint, device, lora_path=None):
-    config = MiniMindConfig(hidden_size=768, num_hidden_layers=8, use_moe=False)
+def load_model(checkpoint, device, lora_path=None, use_moe=False):
+    config = MiniMindConfig(hidden_size=768, num_hidden_layers=8, use_moe=use_moe)
     model = MiniMindForCausalLM(config)
     model.load_state_dict(torch.load(checkpoint, map_location="cpu"), strict=True)
     model = model.half().eval().to(device)
@@ -42,8 +42,13 @@ def main():
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--max-seq-len", type=int, default=368)
     parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--output", type=Path, default=ROOT / "out" / "minimind_dpo_metrics_64m.json")
+    parser.add_argument("--use-moe", action="store_true", help="评测 198M-A64M MoE 权重")
+    parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
+
+    suffix = "_moe" if args.use_moe else ""
+    if args.output is None:
+        args.output = ROOT / "out" / f"minimind_dpo_metrics_{'moe' if args.use_moe else '64m'}.json"
 
     tokenizer = AutoTokenizer.from_pretrained(ROOT / "c_pth" / "model_learn_tokenizer")
     full_dataset = DPODataset(str(args.data_file), tokenizer, max_length=args.max_seq_len)
@@ -51,15 +56,15 @@ def main():
     indexes = list(range(start, min(start + args.limit, len(full_dataset))))
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     checkpoints = [
-        ("Base", ROOT / "out" / "pretrain_768.pth", None),
-        ("SFT", ROOT / "out" / "full_sft_fixed_768.pth", None),
-        ("LoRA", ROOT / "out" / "full_sft_fixed_768.pth", ROOT / "out" / "lora_medical_fixed_768.pth"),
-        ("DPO", ROOT / "out" / "dpo_fixed_768.pth", None),
+        ("Base", ROOT / "out" / f"pretrain_768{suffix}.pth", None),
+        ("SFT", ROOT / "out" / f"full_sft_768{suffix}.pth", None),
+        ("LoRA", ROOT / "out" / f"full_sft_768{suffix}.pth", ROOT / "out" / f"lora_medical_768{suffix}.pth"),
+        ("DPO", ROOT / "out" / f"dpo_768{suffix}.pth", None),
     ]
     results = []
     for name, checkpoint, lora_path in checkpoints:
         print(f"Evaluating {name}")
-        model = load_model(checkpoint, device, lora_path=lora_path)
+        model = load_model(checkpoint, device, lora_path=lora_path, use_moe=args.use_moe)
         chosen_scores = []
         rejected_scores = []
         chosen_counts = []

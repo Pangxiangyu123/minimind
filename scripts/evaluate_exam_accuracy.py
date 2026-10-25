@@ -24,8 +24,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-file", type=Path, default=ROOT / "dataset" / "lora_exam.jsonl")
     parser.add_argument("--limit", type=int, default=100)
-    parser.add_argument("--output", type=Path, default=ROOT / "out" / "minimind_exam_metrics_64m.json")
+    parser.add_argument("--use-moe", action="store_true", help="评测 198M-A64M MoE 权重")
+    parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
+
+    suffix = "_moe" if args.use_moe else ""
+    if args.output is None:
+        args.output = ROOT / "out" / f"minimind_exam_metrics_{'moe' if args.use_moe else '64m'}.json"
 
     import evaluate_myllm_metrics as metrics
     metrics.MAX_NEW = 8
@@ -34,15 +39,15 @@ def main():
     data = load_eval_data(ROOT / "dataset", args.limit, args.data_file)
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     checkpoints = [
-        ("Base", ROOT / "out" / "pretrain_768.pth", None),
-        ("SFT", ROOT / "out" / "full_sft_fixed_768.pth", None),
-        ("LoRA", ROOT / "out" / "full_sft_fixed_768.pth", ROOT / "out" / "lora_medical_fixed_768.pth"),
-        ("DPO", ROOT / "out" / "dpo_fixed_768.pth", None),
+        ("Base", ROOT / "out" / f"pretrain_768{suffix}.pth", None),
+        ("SFT", ROOT / "out" / f"full_sft_768{suffix}.pth", None),
+        ("LoRA", ROOT / "out" / f"full_sft_768{suffix}.pth", ROOT / "out" / f"lora_medical_768{suffix}.pth"),
+        ("DPO", ROOT / "out" / f"dpo_768{suffix}.pth", None),
     ]
     results = []
     for name, checkpoint, lora_path in checkpoints:
         print(f"Evaluating {name}")
-        model = load_model(checkpoint, tokenizer, device, lora_path=lora_path)
+        model = load_model(checkpoint, tokenizer, device, lora_path=lora_path, use_moe=args.use_moe)
         correct = valid = eos_count = 0
         answer_chars = 0
         rows = []
